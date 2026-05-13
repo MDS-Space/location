@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MDS Location</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@500;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0f0f0f;
+      --land: #181818;
+      --land-stroke: rgba(255,255,255,0.15);
+      --red: #e63535;
+      --red-dim: rgba(230,53,53,0.25);
+      --ui-border: rgba(255,255,255,0.08);
+      --ui-bg: rgba(20,20,20,0.92);
+      --text: rgba(255,255,255,0.88);
+      --text-muted: rgba(255,255,255,0.35);
+    }
+
+    body {
+      background: var(--bg);
+      overflow: hidden;
+      width: 100vw; height: 100vh;
+      font-family: 'Syne', sans-serif;
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* MAP */
+    #map-wrap { position: absolute; inset: 0; }
+    svg#map { width: 100%; height: 100%; cursor: grab; display: block; background: var(--bg); }
+    svg#map:active { cursor: grabbing; }
+
+    .country { fill: var(--land); stroke: var(--land-stroke); stroke-width: 0.5px; vector-effect: non-scaling-stroke; }
+    .country-border { fill: none; stroke: rgba(255,255,255,0.20); stroke-width: 0.6px; vector-effect: non-scaling-stroke; }
+    .graticule-path { fill: none; stroke: rgba(255,255,255,0.03); stroke-width: 0.4px; vector-effect: non-scaling-stroke; }
+
+    /* HEADER */
+    #header {
+      position: fixed; top: 0; left: 0; right: 0;
+      padding: 22px 30px;
+      display: flex; align-items: center; justify-content: space-between;
+      pointer-events: none; z-index: 20;
+      background: linear-gradient(to bottom, rgba(15,15,15,0.75) 0%, transparent 100%);
+    }
+    #logo { font-family: 'Space Mono', monospace; font-size: 12px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--text); display: flex; align-items: baseline; gap: 6px; }
+    #logo strong { font-size: 18px; font-weight: 700; letter-spacing: 0.2em; }
+    #logo em { color: var(--red); font-style: normal; }
+    #status-badge { display: flex; align-items: center; gap: 7px; font-family: 'Space Mono', monospace; font-size: 10px; color: var(--text-muted); letter-spacing: 0.1em; }
+    #status-badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--red); box-shadow: 0 0 6px var(--red); animation: blink 2.4s ease-in-out infinite; }
+    @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+    /* CONTROLS */
+    #controls { position: fixed; bottom: 28px; right: 28px; display: flex; flex-direction: column; gap: 5px; z-index: 20; }
+    .ctrl-btn { width: 34px; height: 34px; background: rgba(255,255,255,0.04); border: 1px solid var(--ui-border); color: rgba(255,255,255,0.5); border-radius: 7px; font-size: 17px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: 'Space Mono', monospace; transition: background 0.15s, color 0.15s, border-color 0.15s; line-height: 1; user-select: none; }
+    .ctrl-btn:hover { background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.85); border-color: rgba(255,255,255,0.18); }
+    .ctrl-btn:active { transform: scale(0.94); }
+
+    /* ADD ME BUTTON */
+    #add-me-btn {
+      position: fixed; bottom: 28px; left: 28px;
+      display: flex; align-items: center; gap: 8px;
+      padding: 0 16px; height: 34px;
+      background: var(--red-dim); border: 1px solid rgba(230,53,53,0.4);
+      color: var(--red); border-radius: 7px;
+      font-family: 'Space Mono', monospace; font-size: 10px; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      z-index: 20;
+    }
+    #add-me-btn:hover { background: rgba(230,53,53,0.35); border-color: rgba(230,53,53,0.65); }
+    #add-me-btn::before { content: '+'; font-size: 16px; line-height: 1; }
+
+    /* TOOLTIP */
+    #tooltip {
+      position: fixed; background: var(--ui-bg); border: 1px solid rgba(255,255,255,0.09); border-radius: 10px; padding: 13px 16px;
+      pointer-events: none; opacity: 0; transform: translateY(5px) scale(0.98); transition: opacity 0.16s ease, transform 0.16s ease; z-index: 100; min-width: 175px;
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    }
+    #tooltip.show { opacity: 1; transform: translateY(0) scale(1); }
+    .tt-top { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .tt-flag { font-size: 22px; line-height: 1; flex-shrink: 0; }
+    .tt-code { font-family: 'Space Mono', monospace; font-size: 9px; font-weight: 700; letter-spacing: 0.18em; color: var(--text-muted); text-transform: uppercase; }
+    .tt-city { font-size: 14px; font-weight: 700; color: #fff; letter-spacing: 0.04em; }
+    .tt-members-label { font-family: 'Space Mono', monospace; font-size: 9px; font-weight: 700; letter-spacing: 0.14em; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px; }
+    .tt-nick { font-family: 'Space Mono', monospace; font-size: 12px; color: var(--red); line-height: 1.7; }
+
+    /* DOT */
+    .city-dot-outer { fill: none; stroke: var(--red); stroke-width: 0.8; pointer-events: none; }
+    .city-dot-inner { fill: var(--red); cursor: pointer; }
+
+    /* MODAL OVERLAY */
+    #modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      z-index: 300; display: flex; align-items: center; justify-content: center;
+      opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
+    }
+    #modal-overlay.open { opacity: 1; pointer-events: all; }
+
+    #modal {
+      background: #141414; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 16px; padding: 32px; width: 100%; max-width: 440px;
+      transform: translateY(16px) scale(0.97);
+      transition: transform 0.25s ease;
+      position: relative;
+    }
+    #modal-overlay.open #modal { transform: translateY(0) scale(1); }
+
+    #modal-close {
+      position: absolute; top: 16px; right: 16px;
+      background: none; border: none; color: var(--text-muted); cursor: pointer;
+      font-size: 18px; line-height: 1; padding: 4px; transition: color 0.15s;
+    }
+    #modal-close:hover { color: var(--text); }
+
+    .modal-title {
+      font-family: 'Space Mono', monospace; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.25em; text-transform: uppercase; color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .modal-heading {
+      font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 24px;
+    }
+
+    .field-group { margin-bottom: 16px; }
+    .field-label { font-family: 'Space Mono', monospace; font-size: 9px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-muted); display: block; margin-bottom: 7px; }
+
+    .field-input {
+      width: 100%; padding: 10px 14px;
+      background: rgba(255,255,255,0.04); border: 1px solid var(--ui-border);
+      border-radius: 8px; color: var(--text);
+      font-family: 'Space Mono', monospace; font-size: 12px;
+      outline: none; transition: border-color 0.15s, background 0.15s;
+    }
+    .field-input:focus { border-color: rgba(230,53,53,0.5); background: rgba(230,53,53,0.04); }
+    .field-input::placeholder { color: var(--text-muted); }
+
+    /* City search results dropdown */
+    #city-results {
+      list-style: none; position: absolute; left: 0; right: 0;
+      background: #1a1a1a; border: 1px solid rgba(255,255,255,0.1);
+      border-top: none; border-radius: 0 0 8px 8px;
+      max-height: 180px; overflow-y: auto; z-index: 10;
+    }
+    #city-results li {
+      padding: 9px 14px; font-family: 'Space Mono', monospace; font-size: 11px;
+      cursor: pointer; color: var(--text); transition: background 0.1s;
+      display: flex; align-items: center; gap: 8px;
+    }
+    #city-results li:hover { background: rgba(255,255,255,0.06); }
+    #city-results li .res-flag { font-size: 14px; }
+    #city-results li .res-name { flex: 1; }
+    #city-results li .res-country { color: var(--text-muted); font-size: 9px; }
+
+    .city-input-wrap { position: relative; }
+
+    #submit-btn {
+      width: 100%; padding: 12px; margin-top: 8px;
+      background: var(--red); border: none; border-radius: 8px;
+      color: #fff; font-family: 'Space Mono', monospace; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.15em; text-transform: uppercase; cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    #submit-btn:hover { background: #c92a2a; }
+    #submit-btn:active { transform: scale(0.98); }
+    #submit-btn:disabled { background: rgba(230,53,53,0.3); cursor: not-allowed; }
+
+    .modal-note {
+      font-family: 'Space Mono', monospace; font-size: 9px; color: var(--text-muted);
+      text-align: center; margin-top: 14px; line-height: 1.7; letter-spacing: 0.05em;
+    }
+
+    /* Success / error states */
+    #modal-feedback { display: none; text-align: center; padding: 16px 0; }
+    #modal-feedback .fb-icon { font-size: 36px; margin-bottom: 12px; }
+    #modal-feedback .fb-title { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 8px; }
+    #modal-feedback .fb-sub { font-family: 'Space Mono', monospace; font-size: 10px; color: var(--text-muted); line-height: 1.8; letter-spacing: 0.08em; }
+
+    /* LOADER */
+    #loader { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 200; background: var(--bg); gap: 16px; transition: opacity 0.5s ease; }
+    #loader.hide { opacity: 0; pointer-events: none; }
+    .loader-logo { font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 700; letter-spacing: 0.3em; color: var(--text); }
+    .loader-logo span { color: var(--red); }
+    .loader-bar-wrap { width: 160px; height: 1px; background: rgba(255,255,255,0.08); border-radius: 1px; overflow: hidden; }
+    .loader-bar { height: 100%; width: 0%; background: var(--red); transition: width 0.4s ease; }
+    .loader-text { font-family: 'Space Mono', monospace; font-size: 9px; color: var(--text-muted); letter-spacing: 0.15em; }
+  </style>
+</head>
+<body>
+
+<!-- ─── CONFIG: replace with your Supabase values ─── -->
+<script>
+  window.SUPABASE_URL = 'https://rjjxqqrsbxjjplfxuord.supabase.co/';
+  window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJqanhxcXJzYnhqanBsZnh1b3JkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg2MTkzMTgsImV4cCI6MjA5NDE5NTMxOH0.ROTInS5DzAraZyrPO3n1qEn6hgSvti6XjJSje0lUYnc';
+</script>
+
+<!-- Loader -->
+<div id="loader">
+  <div class="loader-logo">MDS <span>Location</span></div>
+  <div class="loader-bar-wrap"><div class="loader-bar" id="loader-bar"></div></div>
+  <div class="loader-text" id="loader-text">Initializing map…</div>
+</div>
+
+<!-- Header -->
+<div id="header">
+  <div id="logo"><strong>MDS</strong> <em>Location</em></div>
+  <div id="status-badge">Loading…</div>
+</div>
+
+<!-- Map -->
+<div id="map-wrap">
+  <svg id="map">
+    <defs>
+      <filter id="dot-glow" x="-80%" y="-80%" width="260%" height="260%">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
+        <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+      </filter>
+    </defs>
+  </svg>
+</div>
+
+<!-- Controls -->
+<div id="controls">
+  <button class="ctrl-btn" id="zoom-in" title="Zoom in">+</button>
+  <button class="ctrl-btn" id="zoom-out" title="Zoom out">−</button>
+  <button class="ctrl-btn" id="zoom-reset" title="Reset">⊙</button>
+</div>
+
+<!-- Add Me Button -->
+<button id="add-me-btn">Add me to the map</button>
+
+<!-- Tooltip -->
+<div id="tooltip"></div>
+
+<!-- Join Modal -->
+<div id="modal-overlay">
+  <div id="modal">
+    <button id="modal-close" title="Close">✕</button>
+
+    <div id="modal-form-view">
+      <div class="modal-title">MDS Community</div>
+      <div class="modal-heading">Add yourself to the map</div>
+
+      <div class="field-group">
+        <label class="field-label" for="input-name">Your name / nickname</label>
+        <input class="field-input" id="input-name" type="text" placeholder="e.g. goal" maxlength="40" autocomplete="off" />
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" for="input-city">City</label>
+        <div class="city-input-wrap">
+          <input class="field-input" id="input-city" type="text" placeholder="Search city…" autocomplete="off" />
+          <ul id="city-results" style="display:none"></ul>
+        </div>
+      </div>
+
+      <button id="submit-btn" disabled>Submit request</button>
+      <div class="modal-note">Your request will be reviewed before appearing on the map.</div>
+    </div>
+
+    <div id="modal-feedback"></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<script>
+/* ═══════════════════════════════════════════════
+   SUPABASE CLIENT (tiny fetch wrapper, no SDK needed)
+═══════════════════════════════════════════════ */
+const SB = {
+  url: window.SUPABASE_URL,
+  key: window.SUPABASE_ANON_KEY,
+  headers() { return { 'apikey': this.key, 'Authorization': 'Bearer ' + this.key, 'Content-Type': 'application/json' }; },
+  async select(table, query = '') {
+    const res = await fetch(`${this.url}/rest/v1/${table}?${query}`, { headers: this.headers() });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+  },
+  async insert(table, data) {
+    const res = await fetch(`${this.url}/rest/v1/${table}`, {
+      method: 'POST', headers: { ...this.headers(), 'Prefer': 'return=minimal' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return true;
+  }
+};
+
+/* ═══════════════════════════════════════════════
+   GEOCODING via Open-Meteo / Nominatim
+═══════════════════════════════════════════════ */
+let citySearchTimer = null;
+let selectedCity = null; /* { name, country, countryCode, lat, lon } */
+
+async function searchCities(query) {
+  if (query.length < 2) return [];
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=7&language=en&format=json`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    return (data.results || []).map(r => ({
+      name: r.name,
+      country: r.country || '',
+      countryCode: (r.country_code || '').toUpperCase(),
+      lat: r.latitude,
+      lon: r.longitude,
+      flag: countryCodeToFlag(r.country_code || '')
+    }));
+  } catch { return []; }
+}
+
+function countryCodeToFlag(code) {
+  if (!code || code.length !== 2) return '🌍';
+  return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E6 - 65 + c.charCodeAt(0)));
+}
+
+/* ═══════════════════════════════════════════════
+   MAP DATA
+═══════════════════════════════════════════════ */
+let CITIES = [];
+
+async function loadApprovedMembers() {
+  try {
+    const rows = await SB.select('submissions', 'status=eq.approved&select=name,city,country_code,flag,lat,lon');
+    /* Group by city key */
+    const cityMap = {};
+    for (const r of rows) {
+      const key = `${r.city}__${r.country_code}`;
+      if (!cityMap[key]) cityMap[key] = { id: key, name: r.city, countryCode: r.country_code, flag: r.flag || countryCodeToFlag(r.country_code), coords: [r.lon, r.lat], members: [] };
+      cityMap[key].members.push(r.name);
+    }
+    CITIES = Object.values(cityMap);
+  } catch (e) {
+    console.warn('Could not load members from Supabase:', e.message);
+    CITIES = [];
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   D3 MAP
+═══════════════════════════════════════════════ */
+const W = window.innerWidth;
+const H = window.innerHeight;
+const svg = d3.select('#map');
+const g   = svg.append('g');
+const projection = d3.geoNaturalEarth1().scale(W / 6.2).translate([W / 2, H / 2]);
+const path = d3.geoPath().projection(projection);
+
+const clusterLayer = svg.append('g').attr('class', 'cluster-layer');
+const cityLayer    = svg.append('g').attr('class', 'city-layer');
+
+let currentK = 1;
+const ZOOM_THRESHOLD = 3.5;
+
+const zoomBehavior = d3.zoom().scaleExtent([0.9, 30]).on('zoom', ev => {
+  g.attr('transform', ev.transform);
+  currentK = ev.transform.k;
+  updateMarkers(ev.transform);
+});
+
+function updateMarkers(transform) {
+  const split = currentK >= ZOOM_THRESHOLD;
+  clusterLayer.selectAll('.cluster-group').each(function(d) {
+    const [sx, sy] = transform.apply(projection(d.centroid));
+    d3.select(this).attr('transform', `translate(${sx},${sy})`);
+  });
+  cityLayer.selectAll('.city-group').each(function(d) {
+    const [sx, sy] = transform.apply(projection(d.coords));
+    d3.select(this).attr('transform', `translate(${sx},${sy})`);
+  });
+  clusterLayer.transition().duration(220).style('opacity', split ? 0 : 1).style('pointer-events', split ? 'none' : 'all');
+  cityLayer.transition().duration(220).style('opacity', split ? 1 : 0).style('pointer-events', split ? 'all' : 'none');
+}
+
+svg.call(zoomBehavior);
+svg.on('dblclick.zoom', null);
+document.getElementById('zoom-in').onclick    = () => svg.transition().duration(280).call(zoomBehavior.scaleBy, 1.6);
+document.getElementById('zoom-out').onclick   = () => svg.transition().duration(280).call(zoomBehavior.scaleBy, 0.625);
+document.getElementById('zoom-reset').onclick = () => svg.transition().duration(380).call(zoomBehavior.transform, d3.zoomIdentity);
+
+/* Tooltip */
+const tooltip = document.getElementById('tooltip');
+function showClusterTip(event, country) {
+  const rows = country.cities.map(c => c.members.map(m => `<div class="tt-nick">${m}</div>`).join('')).join('');
+  tooltip.innerHTML = `<div class="tt-top"><span class="tt-flag">${country.flag}</span><span class="tt-code">${country.code}</span></div><div class="tt-members-label">Traders</div>${rows}`;
+  tooltip.classList.add('show'); moveTip(event);
+}
+function showCityTip(event, city) {
+  const nicks = city.members.map(n => `<div class="tt-nick">${n}</div>`).join('');
+  tooltip.innerHTML = `<div class="tt-top"><span class="tt-flag">${city.flag}</span><span class="tt-code">${city.countryCode}</span><span class="tt-city">${city.name}</span></div><div class="tt-members-label">Traders</div>${nicks}`;
+  tooltip.classList.add('show'); moveTip(event);
+}
+function moveTip(event) {
+  const x = event.clientX, y = event.clientY;
+  const tw = tooltip.offsetWidth || 185, th = tooltip.offsetHeight || 135, gap = 18;
+  let l = x + gap, t = y + gap;
+  if (l + tw > W - 8) l = x - tw - gap;
+  if (t + th > H - 8) t = y - th - gap;
+  tooltip.style.left = l + 'px'; tooltip.style.top = t + 'px';
+}
+function hideTip() { tooltip.classList.remove('show'); }
+
+function buildDot(parent, datum, onOver) {
+  const DOT_R = 4.5;
+  function addRing(delay, maxR) {
+    const r = parent.append('circle').attr('class', 'city-dot-outer').attr('cx', 0).attr('cy', 0).attr('r', DOT_R);
+    (function anim() { r.attr('r', DOT_R).style('opacity', 0.8).transition().delay(delay).duration(1800).ease(d3.easeCubicOut).attr('r', maxR).style('opacity', 0).on('end', anim); })();
+  }
+  addRing(0, 18); addRing(650, 11);
+  parent.append('circle').attr('class', 'city-dot-inner').attr('cx', 0).attr('cy', 0).attr('r', DOT_R)
+    .attr('filter', 'url(#dot-glow)')
+    .on('mouseover', e => onOver(e, datum)).on('mousemove', moveTip).on('mouseout', hideTip);
+}
+
+function drawMarkers() {
+  clusterLayer.selectAll('*').remove();
+  cityLayer.selectAll('*').remove();
+
+  const byCountry = Array.from(d3.group(CITIES, d => d.countryCode), ([code, cities]) => ({
+    code, flag: cities[0].flag, cities,
+    centroid: [d3.mean(cities, c => c.coords[0]), d3.mean(cities, c => c.coords[1])]
+  }));
+
+  byCountry.forEach(country => {
+    const [cx, cy] = projection(country.centroid);
+    const grp = clusterLayer.append('g').attr('class', 'cluster-group').datum(country).attr('transform', `translate(${cx},${cy})`);
+    buildDot(grp, country, showClusterTip);
+  });
+
+  cityLayer.style('opacity', 0).style('pointer-events', 'none');
+  CITIES.forEach(city => {
+    const [cx, cy] = projection(city.coords);
+    const grp = cityLayer.append('g').attr('class', 'city-group').datum(city).attr('transform', `translate(${cx},${cy})`);
+    buildDot(grp, city, showCityTip);
+  });
+
+  const total = CITIES.reduce((s, c) => s + c.members.length, 0);
+  document.getElementById('status-badge').textContent = `${total} trader${total !== 1 ? 's' : ''} total`;
+}
+
+/* Loader helpers */
+const loaderBar  = document.getElementById('loader-bar');
+const loaderText = document.getElementById('loader-text');
+const loader     = document.getElementById('loader');
+function setProgress(pct, text) { loaderBar.style.width = pct + '%'; if (text) loaderText.textContent = text; }
+
+async function initMap() {
+  setProgress(10, 'Establishing connection…');
+  await loadApprovedMembers();
+  setProgress(35, 'Loading map data…');
+
+  const world = await d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json');
+  setProgress(70, 'Mapping territories…');
+
+  const countries   = topojson.feature(world, world.objects.countries);
+  const cntryBorder = topojson.mesh(world, world.objects.countries, (a, b) => a !== b);
+
+  g.append('path').datum(d3.geoGraticule()()).attr('class', 'graticule-path').attr('d', path);
+  g.selectAll('.country').data(countries.features).join('path').attr('class', 'country').attr('d', path);
+  g.append('path').datum(cntryBorder).attr('class', 'country-border').attr('d', path);
+
+  setProgress(95, 'Placing traders…');
+  drawMarkers();
+
+  setProgress(100, '');
+  setTimeout(() => { loader.classList.add('hide'); }, 300);
+}
+
+initMap().catch(err => {
+  console.error(err);
+  setProgress(100, 'Error loading map');
+  setTimeout(() => { loader.classList.add('hide'); }, 800);
+});
+
+/* ═══════════════════════════════════════════════
+   JOIN MODAL
+═══════════════════════════════════════════════ */
+const overlay      = document.getElementById('modal-overlay');
+const modalForm    = document.getElementById('modal-form-view');
+const modalFeedback= document.getElementById('modal-feedback');
+const inputName    = document.getElementById('input-name');
+const inputCity    = document.getElementById('input-city');
+const cityResults  = document.getElementById('city-results');
+const submitBtn    = document.getElementById('submit-btn');
+
+document.getElementById('add-me-btn').onclick = () => {
+  overlay.classList.add('open');
+  modalForm.style.display = '';
+  modalFeedback.style.display = 'none';
+  inputName.value = ''; inputCity.value = ''; cityResults.style.display = 'none';
+  selectedCity = null; submitBtn.disabled = true;
+};
+document.getElementById('modal-close').onclick = closeModal;
+overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+function closeModal() { overlay.classList.remove('open'); }
+
+function validateForm() { submitBtn.disabled = !(inputName.value.trim() && selectedCity); }
+inputName.addEventListener('input', validateForm);
+
+inputCity.addEventListener('input', () => {
+  selectedCity = null; validateForm();
+  const q = inputCity.value.trim();
+  clearTimeout(citySearchTimer);
+  if (!q) { cityResults.style.display = 'none'; return; }
+  citySearchTimer = setTimeout(async () => {
+    const results = await searchCities(q);
+    cityResults.innerHTML = '';
+    if (!results.length) { cityResults.style.display = 'none'; return; }
+    results.forEach(r => {
+      const li = document.createElement('li');
+      li.innerHTML = `<span class="res-flag">${r.flag}</span><span class="res-name">${r.name}</span><span class="res-country">${r.country} (${r.countryCode})</span>`;
+      li.addEventListener('click', () => {
+        selectedCity = r;
+        inputCity.value = `${r.name}, ${r.country}`;
+        cityResults.style.display = 'none';
+        validateForm();
+      });
+      cityResults.appendChild(li);
+    });
+    cityResults.style.display = 'block';
+  }, 350);
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.city-input-wrap')) cityResults.style.display = 'none';
+});
+
+submitBtn.addEventListener('click', async () => {
+  if (!selectedCity || !inputName.value.trim()) return;
+  submitBtn.disabled = true; submitBtn.textContent = 'Sending…';
+
+  try {
+    await SB.insert('submissions', {
+      name: inputName.value.trim(),
+      city: selectedCity.name,
+      country: selectedCity.country,
+      country_code: selectedCity.countryCode,
+      flag: selectedCity.flag,
+      lat: selectedCity.lat,
+      lon: selectedCity.lon,
+      status: 'pending'
+    });
+
+    modalForm.style.display = 'none';
+    modalFeedback.style.display = 'block';
+    modalFeedback.innerHTML = `
+      <div class="fb-icon">✅</div>
+      <div class="fb-title">Request sent!</div>
+      <div class="fb-sub">Your request has been received and<br>will appear on the map once approved.</div>
+    `;
+  } catch (err) {
+    console.error(err);
+    modalFeedback.style.display = 'block';
+    modalFeedback.innerHTML = `
+      <div class="fb-icon">⚠️</div>
+      <div class="fb-title">Something went wrong</div>
+      <div class="fb-sub">Please try again later.</div>
+    `;
+    modalForm.style.display = 'none';
+  }
+});
+</script>
+</body>
+</html>
